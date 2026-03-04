@@ -1,0 +1,9 @@
+; idt_flush.asm — Load the IDT
+bits 64
+
+section .text
+global idt_flush
+
+idt_flush:
+    lidt [rdi]
+    ret
