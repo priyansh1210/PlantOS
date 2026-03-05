@@ -127,6 +127,14 @@ void *pmm_alloc_page(void) {
     return NULL;
 }
 
+void pmm_mark_page_used(uint64_t addr) {
+    uint64_t page = addr / PAGE_SIZE;
+    if (page < total_pages && !bitmap_test(page)) {
+        bitmap_set(page);
+        used_pages++;
+    }
+}
+
 void pmm_free_page(void *addr) {
     uint64_t page = (uint64_t)addr / PAGE_SIZE;
     if (page < total_pages && bitmap_test(page)) {

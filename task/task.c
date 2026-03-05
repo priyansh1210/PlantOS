@@ -2,6 +2,7 @@
 #include "mm/heap.h"
 #include "lib/string.h"
 #include "lib/printf.h"
+#include "fs/elf_loader.h"
 
 static struct task task_pool[MAX_TASKS];
 static uint64_t   next_pid = 0;
@@ -195,6 +196,16 @@ struct task *task_create_user(const char *name, task_entry_t entry) {
     return t;
 }
 
+struct task *task_create_user_elf(const char *name, uint64_t entry,
+                                  uint64_t elf_base, uint64_t elf_npages) {
+    struct task *t = task_create_user(name, (task_entry_t)entry);
+    if (!t) return NULL;
+
+    t->elf_load_base = elf_base;
+    t->elf_num_pages = elf_npages;
+    return t;
+}
+
 void task_yield(void) {
     struct task *cur = current;
     if (!cur || !cur->next)
@@ -230,6 +241,13 @@ void task_exit(void) {
      * t->next still points into the valid ring, so schedule_from_irq()
      * can traverse from it to find the next READY task.
      */
+    /* Free ELF pages if this was an ELF task */
+    if (t->elf_num_pages > 0) {
+        elf_unload(t->elf_load_base, t->elf_num_pages);
+        t->elf_load_base = 0;
+        t->elf_num_pages = 0;
+    }
+
     task_unlink(t);
     t->state = TASK_UNUSED;
 
@@ -254,6 +272,12 @@ void task_kill(uint64_t pid) {
                 return;
             }
 
+            /* Free ELF pages */
+            if (t->elf_num_pages > 0) {
+                elf_unload(t->elf_load_base, t->elf_num_pages);
+                t->elf_load_base = 0;
+                t->elf_num_pages = 0;
+            }
             task_unlink(t);
             if (t->stack_base) {
                 kfree(t->stack_base);

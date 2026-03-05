@@ -33,12 +33,10 @@ void heap_init(void) {
     heap_start = (struct heap_block *)bitmap_end;
     heap_total_size = HEAP_INITIAL_PAGES * PAGE_SIZE;
 
-    /* Mark heap pages as used in PMM */
+    /* Mark heap pages as used in PMM so they don't get allocated */
     for (uint64_t i = 0; i < HEAP_INITIAL_PAGES; i++) {
         uint64_t page_addr = bitmap_end + i * PAGE_SIZE;
-        uint64_t page_idx = page_addr / PAGE_SIZE;
-        /* These pages are in the identity-mapped region, already accessible */
-        (void)page_idx;
+        pmm_mark_page_used(page_addr);
     }
 
     /* Initialize first free block spanning entire heap */

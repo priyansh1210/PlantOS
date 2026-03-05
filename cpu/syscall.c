@@ -4,6 +4,7 @@
 #include "drivers/serial.h"
 #include "lib/printf.h"
 #include "task/task.h"
+#include "fs/elf_loader.h"
 
 void syscall_handler(struct registers *regs) {
     uint64_t num = regs->rax;
@@ -45,6 +46,23 @@ void syscall_handler(struct registers *regs) {
     case SYS_GETPID:
         regs->rax = task_current()->pid;
         break;
+    case SYS_EXEC: {
+        const char *path = (const char *)arg0;
+        struct elf_info info;
+        if (elf_load(path, &info) < 0) {
+            regs->rax = (uint64_t)-1;
+        } else {
+            struct task *t = task_create_user_elf(path, info.entry,
+                                                  info.load_base, info.num_pages);
+            if (t) {
+                regs->rax = t->pid;
+            } else {
+                elf_unload(info.load_base, info.num_pages);
+                regs->rax = (uint64_t)-1;
+            }
+        }
+        break;
+    }
     default:
         regs->rax = (uint64_t)-1;
         break;

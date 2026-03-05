@@ -27,12 +27,17 @@ struct task {
     uint64_t      *kstack_base;  /* Kernel stack base (for user tasks) */
     uint64_t      kstack_top;    /* Kernel stack top (for TSS.rsp0) */
     uint8_t       is_user;       /* 1 if ring 3 task */
+    /* ELF loader fields */
+    uint64_t      elf_load_base; /* Base vaddr of loaded ELF pages */
+    uint64_t      elf_num_pages; /* Number of 4KB pages to free on exit */
 };
 
 /* Scheduler API */
 void     sched_init(void);
 struct task *task_create(const char *name, task_entry_t entry);
 struct task *task_create_user(const char *name, task_entry_t entry);
+struct task *task_create_user_elf(const char *name, uint64_t entry,
+                                  uint64_t elf_base, uint64_t elf_npages);
 void     task_yield(void);
 void     task_exit(void);
 uint64_t schedule_from_irq(uint64_t old_rsp);

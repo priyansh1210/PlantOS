@@ -9,6 +9,7 @@
 #include "lib/util.h"
 #include "task/task.h"
 #include "fs/vfs.h"
+#include "fs/elf_loader.h"
 
 /* User-mode demo entry point */
 extern void user_demo_entry(void);
@@ -37,6 +38,7 @@ static void cmd_touch(int argc, char **argv);
 static void cmd_mkdir(int argc, char **argv);
 static void cmd_write(int argc, char **argv);
 static void cmd_spawn(int argc, char **argv);
+static void cmd_exec(int argc, char **argv);
 
 static struct command commands[] = {
     {"help",    "Show available commands",      cmd_help},
@@ -53,6 +55,7 @@ static struct command commands[] = {
     {"mkdir",   "Create a directory",           cmd_mkdir},
     {"write",   "Write text to a file",         cmd_write},
     {"spawn",   "Launch user-mode demo task",   cmd_spawn},
+    {"exec",    "Run an ELF binary from ramfs", cmd_exec},
     {"reboot",  "Reboot the system",            cmd_reboot},
     {"about",   "About PlantOS",                cmd_about},
     {NULL, NULL, NULL}
@@ -119,7 +122,7 @@ static void cmd_reboot(int argc, char **argv) {
 static void cmd_about(int argc, char **argv) {
     (void)argc; (void)argv;
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
-    kprintf("PlantOS v0.3\n");
+    kprintf("PlantOS v0.4\n");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     kprintf("A minimal x86_64 operating system\n");
     kprintf("Built from scratch with C and Assembly\n");
@@ -286,6 +289,26 @@ static void cmd_spawn(int argc, char **argv) {
         kprintf("Spawned user-mode task (pid %llu)\n", t->pid);
     } else {
         kprintf("Failed to spawn user task\n");
+    }
+}
+
+static void cmd_exec(int argc, char **argv) {
+    if (argc < 2) {
+        kprintf("Usage: exec <path>\n");
+        return;
+    }
+    struct elf_info info;
+    if (elf_load(argv[1], &info) < 0) {
+        kprintf("exec: failed to load '%s'\n", argv[1]);
+        return;
+    }
+    struct task *t = task_create_user_elf(argv[1], info.entry,
+                                          info.load_base, info.num_pages);
+    if (t) {
+        kprintf("Launched ELF task '%s' (pid %llu)\n", argv[1], t->pid);
+    } else {
+        kprintf("exec: failed to create task\n");
+        elf_unload(info.load_base, info.num_pages);
     }
 }
 

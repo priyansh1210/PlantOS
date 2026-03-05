@@ -7,6 +7,7 @@
 #define SYS_EXIT    1
 #define SYS_YIELD   2
 #define SYS_GETPID  3
+#define SYS_EXEC    4
 
 static inline int64_t syscall0(uint64_t num) {
     int64_t ret;
@@ -56,6 +57,10 @@ static inline void uyield(void) {
 
 static inline uint64_t ugetpid(void) {
     return (uint64_t)syscall0(SYS_GETPID);
+}
+
+static inline int64_t uexec(const char *path) {
+    return syscall1(SYS_EXEC, (uint64_t)path);
 }
 
 #endif
