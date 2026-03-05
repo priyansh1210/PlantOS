@@ -8,6 +8,7 @@
 #define SYS_EXIT    1
 #define SYS_YIELD   2
 #define SYS_GETPID  3
+#define SYS_EXEC    4
 
 void syscall_init(void);
 
