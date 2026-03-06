@@ -38,16 +38,16 @@ C_SRCS     = kernel/main.c kernel/panic.c kernel/initrd.c \
              mm/pmm.c mm/vmm.c mm/heap.c \
              lib/string.c lib/printf.c lib/util.c \
              shell/shell.c shell/commands.c \
-             task/task.c task/sched.c \
-             fs/vfs.c fs/ramfs.c fs/elf_loader.c \
+             task/task.c task/sched.c task/signal.c \
+             fs/vfs.c fs/ramfs.c fs/elf_loader.c fs/pipe.c \
              user/demo.c
 
 # Object files
 ASM64_OBJS = $(patsubst %.asm,$(BUILDDIR)/%.o,$(ASM64_SRCS))
 C_OBJS     = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SRCS))
 
-# User ELF embedded via objcopy -I binary
-USER_GEN_OBJS = $(BUILDDIR)/user/hello_elf.o
+# User ELFs embedded via objcopy -I binary
+USER_GEN_OBJS = $(BUILDDIR)/user/hello_elf.o $(BUILDDIR)/user/sigdemo_elf.o
 
 OBJS64     = $(ASM64_OBJS) $(C_OBJS) $(USER_GEN_OBJS)
 
@@ -58,9 +58,11 @@ BOOT_OBJ     = $(BUILDDIR)/boot/boot32.o
 KERNEL       = $(BUILDDIR)/kernel.bin
 
 # User ELF intermediates
-USER_CRT0    = $(BUILDDIR)/user/crt0.o
-USER_HELLO_O = $(BUILDDIR)/user/hello_user.o
-HELLO_ELF    = $(BUILDDIR)/user/hello.elf
+USER_CRT0      = $(BUILDDIR)/user/crt0.o
+USER_HELLO_O   = $(BUILDDIR)/user/hello_user.o
+HELLO_ELF      = $(BUILDDIR)/user/hello.elf
+USER_SIGDEMO_O = $(BUILDDIR)/user/sigdemo_user.o
+SIGDEMO_ELF    = $(BUILDDIR)/user/sigdemo.elf
 
 QEMU = qemu-system-x86_64
 
@@ -87,6 +89,19 @@ $(HELLO_ELF): $(USER_CRT0) $(USER_HELLO_O) | dirs
 # Embed ELF binary as object using objcopy (no xxd needed)
 # Creates symbols: _binary_hello_elf_start, _binary_hello_elf_end, _binary_hello_elf_size
 $(BUILDDIR)/user/hello_elf.o: $(HELLO_ELF) | dirs
+	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
+	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
+	  $< $@
+
+# --- sigdemo user program ---
+
+$(USER_SIGDEMO_O): user/sigdemo.c | dirs
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(SIGDEMO_ELF): $(USER_CRT0) $(USER_SIGDEMO_O) | dirs
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_SIGDEMO_O)
+
+$(BUILDDIR)/user/sigdemo_elf.o: $(SIGDEMO_ELF) | dirs
 	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
 	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
 	  $< $@

@@ -10,7 +10,8 @@ typedef enum {
     TASK_UNUSED = 0,
     TASK_READY,
     TASK_RUNNING,
-    TASK_ZOMBIE
+    TASK_ZOMBIE,
+    TASK_BLOCKED
 } task_state_t;
 
 typedef void (*task_entry_t)(void);
@@ -30,6 +31,11 @@ struct task {
     /* ELF loader fields */
     uint64_t      elf_load_base; /* Base vaddr of loaded ELF pages */
     uint64_t      elf_num_pages; /* Number of 4KB pages to free on exit */
+    /* Signal fields */
+    uint32_t      pending_signals;    /* Bitmask of pending signals */
+    uint64_t      signal_handlers[8]; /* Handler addresses (0 = default) */
+    /* Blocking fields */
+    void         *block_channel;      /* What this task is blocked on */
 };
 
 /* Scheduler API */
@@ -47,6 +53,14 @@ struct task *task_current(void);
 void         task_set_current(struct task *t);
 struct task *task_get_list(void);
 void     task_kill(uint64_t pid);
+
+/* Blocking API */
+void     task_block(void *channel);
+void     task_wake_one(void *channel);
+void     task_wake_all(void *channel);
+
+/* Find task by PID */
+struct task *task_find(uint64_t pid);
 
 /* Assembly context switch (voluntary) */
 extern void task_switch_to(uint64_t *old_rsp, uint64_t new_rsp);

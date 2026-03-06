@@ -15,10 +15,22 @@ static int alloc_fd(void) {
             fd_table[i].used = true;
             fd_table[i].offset = 0;
             fd_table[i].dir_idx = 0;
+            fd_table[i].pipe = NULL;
+            fd_table[i].pipe_mode = 0;
             return i;
         }
     }
     return -1;
+}
+
+struct vfs_fd *vfs_get_fd(int fd) {
+    if (fd < 0 || fd >= VFS_MAX_FDS || !fd_table[fd].used)
+        return NULL;
+    return &fd_table[fd];
+}
+
+int vfs_alloc_fd(void) {
+    return alloc_fd();
 }
 
 /* Ramfs functions — implemented in ramfs.c */

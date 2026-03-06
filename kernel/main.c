@@ -13,6 +13,7 @@
 #include "mm/heap.h"
 #include "lib/printf.h"
 #include "task/task.h"
+#include "task/signal.h"
 #include "shell/shell.h"
 #include "fs/vfs.h"
 #include "cpu/syscall.h"
@@ -24,7 +25,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     serial_init();
 
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
-    kprintf("PlantOS v0.4 booting...\n");
+    kprintf("PlantOS v0.5 booting...\n");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
 
     /* Phase 2: CPU tables */
@@ -55,7 +56,10 @@ void kernel_main(uint64_t multiboot_info_addr) {
     /* Phase 8: Initial ramdisk */
     initrd_init();
 
-    /* Phase 9: Syscalls */
+    /* Phase 9: Signals */
+    signal_init();
+
+    /* Phase 10: Syscalls */
     syscall_init();
 
     /* Phase 9: Spawn shell as a task */

@@ -8,7 +8,10 @@
 #include "lib/string.h"
 #include "lib/util.h"
 #include "task/task.h"
+#include "task/signal.h"
+#include <plantos/signal.h>
 #include "fs/vfs.h"
+#include "fs/pipe.h"
 #include "fs/elf_loader.h"
 
 /* User-mode demo entry point */
@@ -39,6 +42,7 @@ static void cmd_mkdir(int argc, char **argv);
 static void cmd_write(int argc, char **argv);
 static void cmd_spawn(int argc, char **argv);
 static void cmd_exec(int argc, char **argv);
+static void cmd_pipe(int argc, char **argv);
 
 static struct command commands[] = {
     {"help",    "Show available commands",      cmd_help},
@@ -56,6 +60,7 @@ static struct command commands[] = {
     {"write",   "Write text to a file",         cmd_write},
     {"spawn",   "Launch user-mode demo task",   cmd_spawn},
     {"exec",    "Run an ELF binary from ramfs", cmd_exec},
+    {"pipe",    "Demo pipe IPC",                cmd_pipe},
     {"reboot",  "Reboot the system",            cmd_reboot},
     {"about",   "About PlantOS",                cmd_about},
     {NULL, NULL, NULL}
@@ -122,7 +127,7 @@ static void cmd_reboot(int argc, char **argv) {
 static void cmd_about(int argc, char **argv) {
     (void)argc; (void)argv;
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
-    kprintf("PlantOS v0.4\n");
+    kprintf("PlantOS v0.5\n");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     kprintf("A minimal x86_64 operating system\n");
     kprintf("Built from scratch with C and Assembly\n");
@@ -133,6 +138,7 @@ static const char *state_str(task_state_t s) {
         case TASK_READY:   return "READY";
         case TASK_RUNNING: return "RUNNING";
         case TASK_ZOMBIE:  return "ZOMBIE";
+        case TASK_BLOCKED: return "BLOCKED";
         default:           return "???";
     }
 }
@@ -168,21 +174,53 @@ static void cmd_ps(int argc, char **argv) {
     } while (t != head);
 }
 
+static uint64_t parse_num(const char *s) {
+    uint64_t n = 0;
+    for (int i = 0; s[i]; i++) {
+        if (s[i] < '0' || s[i] > '9') return (uint64_t)-1;
+        n = n * 10 + (s[i] - '0');
+    }
+    return n;
+}
+
 static void cmd_kill(int argc, char **argv) {
     if (argc < 2) {
-        kprintf("Usage: kill <pid>\n");
+        kprintf("Usage: kill <pid> [signal]\n");
+        kprintf("  Signals: 1=SIGKILL 2=SIGTERM 3=SIGUSR1 4=SIGUSR2 5=SIGPIPE\n");
         return;
     }
-    /* Simple atoi */
-    uint64_t pid = 0;
-    for (int i = 0; argv[1][i]; i++) {
-        if (argv[1][i] < '0' || argv[1][i] > '9') {
-            kprintf("Invalid PID: %s\n", argv[1]);
+    uint64_t pid = parse_num(argv[1]);
+    if (pid == (uint64_t)-1) {
+        kprintf("Invalid PID: %s\n", argv[1]);
+        return;
+    }
+
+    int signum = SIGKILL; /* Default */
+    if (argc >= 3) {
+        uint64_t s = parse_num(argv[2]);
+        if (s == (uint64_t)-1 || s < 1 || s >= MAX_SIGNALS) {
+            kprintf("Invalid signal: %s\n", argv[2]);
             return;
         }
-        pid = pid * 10 + (argv[1][i] - '0');
+        signum = (int)s;
     }
-    task_kill(pid);
+
+    struct task *t = task_find(pid);
+    if (!t) {
+        kprintf("No task with pid %llu\n", pid);
+        return;
+    }
+
+    if (t->is_user) {
+        /* Send signal to user task */
+        if (signal_send(pid, signum) == 0)
+            kprintf("Sent signal %d to pid %llu\n", signum, pid);
+        else
+            kprintf("Failed to send signal\n");
+    } else {
+        /* Kernel task: use hard kill */
+        task_kill(pid);
+    }
 }
 
 static void cmd_ls(int argc, char **argv) {
@@ -309,6 +347,62 @@ static void cmd_exec(int argc, char **argv) {
     } else {
         kprintf("exec: failed to create task\n");
         elf_unload(info.load_base, info.num_pages);
+    }
+}
+
+static struct {
+    int read_fd;
+    int write_fd;
+} pipe_demo_ctx;
+
+static void pipe_writer_task(void) {
+    const char *msg = "Hello through pipe!";
+    int len = 0;
+    while (msg[len]) len++;
+
+    pipe_fd_write(pipe_demo_ctx.write_fd, msg, (size_t)len);
+    kprintf("[PIPE-WRITER] Wrote %d bytes\n", len);
+
+    pipe_fd_close(pipe_demo_ctx.write_fd);
+    kprintf("[PIPE-WRITER] Closed write end\n");
+    task_exit();
+}
+
+static void pipe_reader_task(void) {
+    char buf[128];
+    int n = pipe_fd_read(pipe_demo_ctx.read_fd, buf, sizeof(buf) - 1);
+    if (n > 0) {
+        buf[n] = '\0';
+        kprintf("[PIPE-READER] Read %d bytes: \"%s\"\n", n, buf);
+    } else {
+        kprintf("[PIPE-READER] Read returned %d\n", n);
+    }
+
+    pipe_fd_close(pipe_demo_ctx.read_fd);
+    kprintf("[PIPE-READER] Closed read end\n");
+    task_exit();
+}
+
+static void cmd_pipe(int argc, char **argv) {
+    (void)argc; (void)argv;
+
+    int read_fd, write_fd;
+    if (pipe_create(&read_fd, &write_fd) < 0) {
+        kprintf("Failed to create pipe\n");
+        return;
+    }
+    kprintf("Pipe created: read_fd=%d, write_fd=%d\n", read_fd, write_fd);
+
+    pipe_demo_ctx.read_fd = read_fd;
+    pipe_demo_ctx.write_fd = write_fd;
+
+    struct task *writer = task_create("pipe-writer", pipe_writer_task);
+    struct task *reader = task_create("pipe-reader", pipe_reader_task);
+    if (writer && reader) {
+        kprintf("Spawned pipe-writer (pid %llu) and pipe-reader (pid %llu)\n",
+                writer->pid, reader->pid);
+    } else {
+        kprintf("Failed to spawn pipe tasks\n");
     }
 }
 
