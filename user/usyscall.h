@@ -3,11 +3,17 @@
 
 #include <plantos/types.h>
 
-#define SYS_WRITE   0
-#define SYS_EXIT    1
-#define SYS_YIELD   2
-#define SYS_GETPID  3
-#define SYS_EXEC    4
+#define SYS_WRITE     0
+#define SYS_EXIT      1
+#define SYS_YIELD     2
+#define SYS_GETPID    3
+#define SYS_EXEC      4
+#define SYS_KILL      5
+#define SYS_SIGNAL    6
+#define SYS_SIGRETURN 7
+#define SYS_PIPE      8
+#define SYS_READ      9
+#define SYS_CLOSE     10
 
 static inline int64_t syscall0(uint64_t num) {
     int64_t ret;
@@ -26,6 +32,17 @@ static inline int64_t syscall1(uint64_t num, uint64_t a0) {
         "int $0x80"
         : "=a"(ret)
         : "a"(num), "D"(a0)
+        : "memory"
+    );
+    return ret;
+}
+
+static inline int64_t syscall2(uint64_t num, uint64_t a0, uint64_t a1) {
+    int64_t ret;
+    __asm__ volatile (
+        "int $0x80"
+        : "=a"(ret)
+        : "a"(num), "D"(a0), "S"(a1)
         : "memory"
     );
     return ret;
@@ -61,6 +78,30 @@ static inline uint64_t ugetpid(void) {
 
 static inline int64_t uexec(const char *path) {
     return syscall1(SYS_EXEC, (uint64_t)path);
+}
+
+static inline int64_t ukill(uint64_t pid, int signum) {
+    return syscall2(SYS_KILL, pid, (uint64_t)signum);
+}
+
+static inline int64_t usignal(int signum, void (*handler)(int)) {
+    return syscall2(SYS_SIGNAL, (uint64_t)signum, (uint64_t)handler);
+}
+
+static inline void usigreturn(void) {
+    syscall0(SYS_SIGRETURN);
+}
+
+static inline int64_t upipe(int *fds) {
+    return syscall1(SYS_PIPE, (uint64_t)fds);
+}
+
+static inline int64_t uread(int fd, void *buf, uint64_t count) {
+    return syscall3(SYS_READ, (uint64_t)fd, (uint64_t)buf, count);
+}
+
+static inline int64_t uclose(int fd) {
+    return syscall1(SYS_CLOSE, (uint64_t)fd);
 }
 
 #endif

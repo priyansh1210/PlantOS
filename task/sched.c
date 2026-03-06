@@ -1,4 +1,5 @@
 #include "task/task.h"
+#include "task/signal.h"
 #include "cpu/gdt.h"
 #include "lib/printf.h"
 
@@ -34,7 +35,8 @@ uint64_t schedule_from_irq(uint64_t old_rsp) {
      * exited (TASK_UNUSED), don't save old_rsp into it — that would
      * be meaningless and could corrupt a future reuse of the TCB slot.
      */
-    int cur_alive = (cur->state == TASK_RUNNING || cur->state == TASK_READY);
+    int cur_alive = (cur->state == TASK_RUNNING || cur->state == TASK_READY ||
+                     cur->state == TASK_BLOCKED);
     if (cur_alive) {
         cur->rsp = old_rsp;
         cur->ticks++;
@@ -63,6 +65,14 @@ uint64_t schedule_from_irq(uint64_t old_rsp) {
     /* Update TSS.rsp0 for user-mode tasks */
     if (next->is_user) {
         tss_set_rsp0(next->kstack_top);
+    }
+
+    /* Deliver pending signals before switching to next task */
+    if (next->pending_signals && next->is_user) {
+        signal_deliver(next);
+        /* If signal_deliver killed the task, don't switch to it */
+        if (next->state == TASK_UNUSED)
+            return old_rsp;
     }
 
     return next->rsp;

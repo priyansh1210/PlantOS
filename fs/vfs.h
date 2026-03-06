@@ -32,12 +32,17 @@ struct vfs_stat {
     uint32_t inode;
 };
 
+/* Forward declare pipe */
+struct pipe;
+
 /* File descriptor */
 struct vfs_fd {
     bool     used;
     uint32_t inode;
     uint32_t offset;     /* read/write position */
     uint32_t dir_idx;    /* readdir position */
+    struct pipe *pipe;   /* Non-NULL if this FD is a pipe end */
+    uint8_t  pipe_mode;  /* 0=not pipe, 1=read end, 2=write end */
 };
 
 /* VFS API */
@@ -49,6 +54,10 @@ int  vfs_write(int fd, const void *buf, size_t count);
 int  vfs_stat(const char *path, struct vfs_stat *st);
 int  vfs_mkdir(const char *path);
 int  vfs_readdir(int fd, struct vfs_dirent *de);
+
+/* FD table access (for pipe integration) */
+struct vfs_fd *vfs_get_fd(int fd);
+int vfs_alloc_fd(void);
 
 /* Ramfs init */
 void ramfs_init(void);

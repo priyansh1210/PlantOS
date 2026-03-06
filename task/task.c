@@ -257,6 +257,48 @@ void task_exit(void) {
         __asm__ volatile ("hlt");
 }
 
+void task_block(void *channel) {
+    struct task *t = current;
+    if (!t) return;
+    t->state = TASK_BLOCKED;
+    t->block_channel = channel;
+}
+
+void task_wake_one(void *channel) {
+    struct task *head = current;
+    if (!head) return;
+    struct task *t = head;
+    do {
+        if (t->state == TASK_BLOCKED && t->block_channel == channel) {
+            t->state = TASK_READY;
+            t->block_channel = NULL;
+            return;
+        }
+        t = t->next;
+    } while (t != head);
+}
+
+void task_wake_all(void *channel) {
+    struct task *head = current;
+    if (!head) return;
+    struct task *t = head;
+    do {
+        if (t->state == TASK_BLOCKED && t->block_channel == channel) {
+            t->state = TASK_READY;
+            t->block_channel = NULL;
+        }
+        t = t->next;
+    } while (t != head);
+}
+
+struct task *task_find(uint64_t pid) {
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (task_pool[i].pid == pid && task_pool[i].state != TASK_UNUSED)
+            return &task_pool[i];
+    }
+    return NULL;
+}
+
 void task_kill(uint64_t pid) {
     for (int i = 0; i < MAX_TASKS; i++) {
         if (task_pool[i].pid == pid &&
