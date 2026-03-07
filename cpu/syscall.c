@@ -9,6 +9,7 @@
 #include "fs/vfs.h"
 #include "fs/pipe.h"
 #include "mm/vmm.h"
+#include "mm/pmm.h"
 
 void syscall_handler(struct registers *regs) {
     uint64_t num = regs->rax;
@@ -133,6 +134,42 @@ void syscall_handler(struct registers *regs) {
     case SYS_WAITPID: {
         uint64_t child_pid = arg0;
         regs->rax = (uint64_t)task_waitpid(child_pid);
+        break;
+    }
+    case SYS_SBRK: {
+        int64_t increment = (int64_t)arg0;
+        struct task *t = task_current();
+        if (!t->cr3 || !t->is_user) {
+            regs->rax = (uint64_t)-1;
+            break;
+        }
+        if (increment == 0) {
+            regs->rax = t->brk;
+            break;
+        }
+        if (increment < 0) {
+            regs->rax = (uint64_t)-1;
+            break;
+        }
+        uint64_t old_brk = t->brk;
+        uint64_t new_brk = old_brk + (uint64_t)increment;
+        /* Map any new pages needed */
+        uint64_t old_end = (old_brk + 0xFFF) & ~0xFFFULL;
+        uint64_t new_end = (new_brk + 0xFFF) & ~0xFFFULL;
+        for (uint64_t addr = old_end; addr < new_end; addr += 4096) {
+            void *phys = pmm_alloc_page();
+            if (!phys) {
+                regs->rax = (uint64_t)-1;
+                break;
+            }
+            /* Zero the page via identity-mapped physical address */
+            for (int i = 0; i < 4096; i++)
+                ((uint8_t *)phys)[i] = 0;
+            vmm_map_page_in(t->cr3, addr, (uint64_t)phys,
+                           VMM_PRESENT | VMM_WRITE | VMM_USER);
+        }
+        t->brk = new_brk;
+        regs->rax = old_brk;
         break;
     }
     default:

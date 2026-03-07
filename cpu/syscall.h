@@ -17,6 +17,7 @@
 #define SYS_CLOSE     10
 #define SYS_FORK      11
 #define SYS_WAITPID   12
+#define SYS_SBRK      13
 
 void syscall_init(void);
 

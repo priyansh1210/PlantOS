@@ -16,6 +16,7 @@
 #define SYS_CLOSE     10
 #define SYS_FORK      11
 #define SYS_WAITPID   12
+#define SYS_SBRK      13
 
 static inline int64_t syscall0(uint64_t num) {
     int64_t ret;
@@ -112,6 +113,10 @@ static inline int64_t ufork(void) {
 
 static inline int64_t uwaitpid(uint64_t pid) {
     return syscall1(SYS_WAITPID, pid);
+}
+
+static inline int64_t usbrk(int64_t increment) {
+    return syscall1(SYS_SBRK, (uint64_t)increment);
 }
 
 #endif

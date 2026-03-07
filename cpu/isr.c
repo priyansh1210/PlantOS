@@ -2,6 +2,7 @@
 #include "cpu/idt.h"
 #include "lib/printf.h"
 #include "kernel/panic.h"
+#include "task/task.h"
 
 static const char *exception_names[] = {
     "Division Error",
@@ -32,6 +33,28 @@ static const char *exception_names[] = {
     "Security Exception",
     "Reserved"
 };
+
+static void page_fault_handler(struct registers *regs) {
+    uint64_t cr2;
+    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+
+    int user_mode = (regs->err_code & 4) != 0;
+
+    if (user_mode) {
+        struct task *t = task_current();
+        kprintf("[PF] Task '%s' (pid %llu): segfault at 0x%llx (err=0x%llx, rip=0x%llx)\n",
+                t->name, t->pid, cr2, regs->err_code, regs->rip);
+        task_exit();
+        /* Never returns */
+    }
+
+    /* Kernel page fault — unrecoverable */
+    kprintf("\n=== PAGE FAULT ===\n");
+    kprintf("Address: 0x%016llx\n", cr2);
+    kprintf("Error: 0x%llx  RIP: 0x%016llx\n", regs->err_code, regs->rip);
+    kprintf("RSP: 0x%016llx  CS: 0x%04llx\n", regs->rsp, regs->cs);
+    kernel_panic("Kernel page fault");
+}
 
 void isr_init(void) {
     /* 0x8E = Present, DPL=0, 64-bit interrupt gate */
@@ -68,7 +91,8 @@ void isr_init(void) {
     idt_set_gate(30, (uint64_t)isr30, 0x08, 0x8E);
     idt_set_gate(31, (uint64_t)isr31, 0x08, 0x8E);
 
-    kprintf("[ISR] Exception handlers installed\n");
+    register_interrupt_handler(14, page_fault_handler);
+    kprintf("[ISR] Exception handlers installed (with page fault handler)\n");
 }
 
 /* Called from assembly ISR common stub */
