@@ -15,6 +15,8 @@
 #define SYS_PIPE      8
 #define SYS_READ      9
 #define SYS_CLOSE     10
+#define SYS_FORK      11
+#define SYS_WAITPID   12
 
 void syscall_init(void);
 

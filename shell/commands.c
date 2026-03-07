@@ -13,6 +13,7 @@
 #include "fs/vfs.h"
 #include "fs/pipe.h"
 #include "fs/elf_loader.h"
+#include "mm/vmm.h"
 
 /* User-mode demo entry point */
 extern void user_demo_entry(void);
@@ -127,7 +128,7 @@ static void cmd_reboot(int argc, char **argv) {
 static void cmd_about(int argc, char **argv) {
     (void)argc; (void)argv;
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
-    kprintf("PlantOS v0.5\n");
+    kprintf("PlantOS v0.6\n");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     kprintf("A minimal x86_64 operating system\n");
     kprintf("Built from scratch with C and Assembly\n");
@@ -335,18 +336,26 @@ static void cmd_exec(int argc, char **argv) {
         kprintf("Usage: exec <path>\n");
         return;
     }
+    /* Create per-process address space */
+    uint64_t new_cr3 = vmm_create_address_space();
+    if (!new_cr3) {
+        kprintf("exec: failed to create address space\n");
+        return;
+    }
     struct elf_info info;
-    if (elf_load(argv[1], &info) < 0) {
+    if (elf_load(argv[1], &info, new_cr3) < 0) {
         kprintf("exec: failed to load '%s'\n", argv[1]);
+        vmm_destroy_address_space(new_cr3);
         return;
     }
     struct task *t = task_create_user_elf(argv[1], info.entry,
-                                          info.load_base, info.num_pages);
+                                          info.load_base, info.num_pages,
+                                          new_cr3);
     if (t) {
         kprintf("Launched ELF task '%s' (pid %llu)\n", argv[1], t->pid);
     } else {
         kprintf("exec: failed to create task\n");
-        elf_unload(info.load_base, info.num_pages);
+        vmm_destroy_address_space(new_cr3);
     }
 }
 
