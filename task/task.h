@@ -39,6 +39,8 @@ struct task {
     /* ELF loader fields */
     uint64_t      elf_load_base; /* Base vaddr of loaded ELF pages */
     uint64_t      elf_num_pages; /* Number of 4KB pages to free on exit */
+    /* User heap (sbrk) */
+    uint64_t      brk;           /* Current program break (heap end) */
     /* Signal fields */
     uint32_t      pending_signals;    /* Bitmask of pending signals */
     uint64_t      signal_handlers[8]; /* Handler addresses (0 = default) */

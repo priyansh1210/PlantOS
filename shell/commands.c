@@ -128,7 +128,7 @@ static void cmd_reboot(int argc, char **argv) {
 static void cmd_about(int argc, char **argv) {
     (void)argc; (void)argv;
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
-    kprintf("PlantOS v0.6\n");
+    kprintf("PlantOS v0.7\n");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     kprintf("A minimal x86_64 operating system\n");
     kprintf("Built from scratch with C and Assembly\n");

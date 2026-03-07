@@ -1,5 +1,5 @@
 # PlantOS Makefile — Two-stage build
-# Stage 1: Build user ELF programs → embed as binary objects
+# Stage 1: Build user ELF programs (with libc) → embed as binary objects
 # Stage 2: Build 64-bit kernel (kernel64.elf → kernel64.bin)
 # Stage 3: Build 32-bit boot stub with embedded kernel (→ kernel.bin)
 
@@ -47,7 +47,8 @@ ASM64_OBJS = $(patsubst %.asm,$(BUILDDIR)/%.o,$(ASM64_SRCS))
 C_OBJS     = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SRCS))
 
 # User ELFs embedded via objcopy -I binary
-USER_GEN_OBJS = $(BUILDDIR)/user/hello_elf.o $(BUILDDIR)/user/sigdemo_elf.o $(BUILDDIR)/user/forkdemo_elf.o
+USER_GEN_OBJS = $(BUILDDIR)/user/hello_elf.o $(BUILDDIR)/user/sigdemo_elf.o \
+                $(BUILDDIR)/user/forkdemo_elf.o $(BUILDDIR)/user/mallocdemo_elf.o
 
 OBJS64     = $(ASM64_OBJS) $(C_OBJS) $(USER_GEN_OBJS)
 
@@ -57,14 +58,17 @@ KERNEL64_BIN = $(BUILDDIR)/kernel64.bin
 BOOT_OBJ     = $(BUILDDIR)/boot/boot32.o
 KERNEL       = $(BUILDDIR)/kernel.bin
 
+# User libc objects (compiled with user flags)
+USER_CRT0       = $(BUILDDIR)/user/crt0.o
+USER_LIBC_OBJS  = $(BUILDDIR)/user/libc/ustring.o \
+                  $(BUILDDIR)/user/libc/umalloc.o \
+                  $(BUILDDIR)/user/libc/uprintf.o
+
 # User ELF intermediates
-USER_CRT0      = $(BUILDDIR)/user/crt0.o
-USER_HELLO_O   = $(BUILDDIR)/user/hello_user.o
-HELLO_ELF      = $(BUILDDIR)/user/hello.elf
-USER_SIGDEMO_O = $(BUILDDIR)/user/sigdemo_user.o
-SIGDEMO_ELF    = $(BUILDDIR)/user/sigdemo.elf
-USER_FORKDEMO_O = $(BUILDDIR)/user/forkdemo_user.o
+HELLO_ELF       = $(BUILDDIR)/user/hello.elf
+SIGDEMO_ELF     = $(BUILDDIR)/user/sigdemo.elf
 FORKDEMO_ELF    = $(BUILDDIR)/user/forkdemo.elf
+MALLOCDEMO_ELF  = $(BUILDDIR)/user/mallocdemo.elf
 
 QEMU = qemu-system-x86_64
 
@@ -75,46 +79,54 @@ all: $(KERNEL)
 dirs:
 	@mkdir -p $(BUILDDIR)/boot $(BUILDDIR)/kernel $(BUILDDIR)/cpu \
 	          $(BUILDDIR)/drivers $(BUILDDIR)/mm $(BUILDDIR)/lib $(BUILDDIR)/shell \
-	          $(BUILDDIR)/task $(BUILDDIR)/fs $(BUILDDIR)/user
+	          $(BUILDDIR)/task $(BUILDDIR)/fs $(BUILDDIR)/user $(BUILDDIR)/user/libc
 
-# --- User ELF programs ---
+# --- User libc ---
+
+$(BUILDDIR)/user/libc/%.o: user/libc/%.c | dirs
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+# --- User ELF programs (all link with crt0 + libc) ---
 
 $(USER_CRT0): user/crt0.asm | dirs
 	$(AS) -f elf64 $< -o $@
 
-$(USER_HELLO_O): user/hello.c | dirs
+# Generic rule: compile user source to _user.o
+$(BUILDDIR)/user/%_user.o: user/%.c | dirs
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
-$(HELLO_ELF): $(USER_CRT0) $(USER_HELLO_O) | dirs
-	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_HELLO_O)
+# hello
+$(HELLO_ELF): $(USER_CRT0) $(USER_LIBC_OBJS) $(BUILDDIR)/user/hello_user.o | dirs
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_LIBC_OBJS) $(BUILDDIR)/user/hello_user.o
 
 $(BUILDDIR)/user/hello_elf.o: $(HELLO_ELF) | dirs
 	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
 	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
 	  $< $@
 
-# --- sigdemo user program ---
-
-$(USER_SIGDEMO_O): user/sigdemo.c | dirs
-	$(CC) $(USER_CFLAGS) -c $< -o $@
-
-$(SIGDEMO_ELF): $(USER_CRT0) $(USER_SIGDEMO_O) | dirs
-	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_SIGDEMO_O)
+# sigdemo
+$(SIGDEMO_ELF): $(USER_CRT0) $(USER_LIBC_OBJS) $(BUILDDIR)/user/sigdemo_user.o | dirs
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_LIBC_OBJS) $(BUILDDIR)/user/sigdemo_user.o
 
 $(BUILDDIR)/user/sigdemo_elf.o: $(SIGDEMO_ELF) | dirs
 	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
 	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
 	  $< $@
 
-# --- forkdemo user program ---
-
-$(USER_FORKDEMO_O): user/forkdemo.c | dirs
-	$(CC) $(USER_CFLAGS) -c $< -o $@
-
-$(FORKDEMO_ELF): $(USER_CRT0) $(USER_FORKDEMO_O) | dirs
-	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_FORKDEMO_O)
+# forkdemo
+$(FORKDEMO_ELF): $(USER_CRT0) $(USER_LIBC_OBJS) $(BUILDDIR)/user/forkdemo_user.o | dirs
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_LIBC_OBJS) $(BUILDDIR)/user/forkdemo_user.o
 
 $(BUILDDIR)/user/forkdemo_elf.o: $(FORKDEMO_ELF) | dirs
+	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
+	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
+	  $< $@
+
+# mallocdemo
+$(MALLOCDEMO_ELF): $(USER_CRT0) $(USER_LIBC_OBJS) $(BUILDDIR)/user/mallocdemo_user.o | dirs
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_LIBC_OBJS) $(BUILDDIR)/user/mallocdemo_user.o
+
+$(BUILDDIR)/user/mallocdemo_elf.o: $(MALLOCDEMO_ELF) | dirs
 	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
 	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
 	  $< $@
@@ -139,11 +151,9 @@ $(KERNEL64_BIN): $(KERNEL64_ELF)
 
 # --- Stage 2: 32-bit boot stub ---
 
-# boot.asm depends on kernel64.bin (incbin)
 $(BOOT_OBJ): boot/boot.asm $(KERNEL64_BIN) | dirs
 	$(AS) -f elf32 $< -o $@
 
-# Link final kernel (ELF32 — loadable by QEMU -kernel)
 $(KERNEL): $(BOOT_OBJ) | dirs
 	$(LD) $(LDFLAGS32) -o $@ $<
 

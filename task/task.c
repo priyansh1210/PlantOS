@@ -214,6 +214,7 @@ struct task *task_create_user_elf(const char *name, uint64_t entry,
     t->cr3 = cr3;
     t->elf_load_base = elf_base;
     t->elf_num_pages = elf_npages;
+    t->brk = elf_base + elf_npages * 4096; /* Heap starts after ELF */
 
     /* Allocate user stack in the process's address space */
     void *ustack_phys = pmm_alloc_page();
@@ -289,9 +290,10 @@ struct task *task_fork(struct registers *parent_regs) {
         return NULL;
     }
 
-    /* Copy ELF info so cleanup works */
+    /* Copy ELF and heap info */
     child->elf_load_base = parent->elf_load_base;
     child->elf_num_pages = parent->elf_num_pages;
+    child->brk = parent->brk;
 
     /* Allocate kernel stack for child */
     child->kstack_base = (uint64_t *)kmalloc(TASK_STACK_SIZE);
