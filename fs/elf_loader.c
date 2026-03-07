@@ -7,7 +7,7 @@
 #include "lib/string.h"
 #include "lib/printf.h"
 
-int elf_load(const char *path, struct elf_info *info) {
+int elf_load(const char *path, struct elf_info *info, uint64_t cr3) {
     memset(info, 0, sizeof(*info));
 
     /* Get file size */
@@ -91,9 +91,7 @@ int elf_load(const char *path, struct elf_info *info) {
     info->load_base = lowest_vaddr;
     info->num_pages = total_pages;
 
-    /* Allocate physical pages and copy segment data BEFORE mapping.
-     * We write to pages via their physical (identity-mapped) addresses,
-     * so the huge page split in vmm_map_page won't affect our writes. */
+    /* Allocate physical pages and copy segment data */
     uint64_t *page_phys = (uint64_t *)kmalloc(total_pages * sizeof(uint64_t));
     if (!page_phys) {
         kprintf("[ELF] Cannot allocate page table\n");
@@ -101,7 +99,6 @@ int elf_load(const char *path, struct elf_info *info) {
         return -1;
     }
 
-    /* Allocate all physical pages */
     for (uint64_t p = 0; p < total_pages; p++) {
         void *page = pmm_alloc_page();
         if (!page) {
@@ -116,37 +113,34 @@ int elf_load(const char *path, struct elf_info *info) {
         page_phys[p] = (uint64_t)page;
     }
 
-    /* Copy segment data into the allocated pages (via physical addresses) */
+    /* Copy segment data into the allocated pages (via physical/identity-mapped addresses) */
     for (uint16_t i = 0; i < ehdr->e_phnum; i++) {
         Elf64_Phdr *phdr = (Elf64_Phdr *)(buf + ehdr->e_phoff + i * ehdr->e_phentsize);
 
         if (phdr->p_type != PT_LOAD || phdr->p_filesz == 0)
             continue;
 
-        /* Copy file data byte-by-byte into the correct physical pages */
         for (uint64_t off = 0; off < phdr->p_filesz; off++) {
             uint64_t vaddr = phdr->p_vaddr + off;
             uint64_t page_idx = (vaddr - lowest_vaddr) / PAGE_SIZE;
             uint64_t page_off = vaddr & 0xFFF;
-            /* Write via physical address (identity-mapped) */
             uint8_t *dst = (uint8_t *)(page_phys[page_idx] + page_off);
             *dst = buf[phdr->p_offset + off];
         }
     }
 
-    /* Done with the file buffer */
     kfree(buf);
 
-    /* Now map the pages at the target virtual addresses */
+    /* Map the pages in the TARGET address space */
     for (uint64_t p = 0; p < total_pages; p++) {
         uint64_t vaddr = lowest_vaddr + p * PAGE_SIZE;
-        vmm_map_page(vaddr, page_phys[p], VMM_PRESENT | VMM_WRITE | VMM_USER);
+        vmm_map_page_in(cr3, vaddr, page_phys[p], VMM_PRESENT | VMM_WRITE | VMM_USER);
     }
 
     kfree(page_phys);
 
-    kprintf("[ELF] Loaded '%s': entry=0x%llx, base=0x%llx, %llu pages\n",
-            path, info->entry, info->load_base, info->num_pages);
+    kprintf("[ELF] Loaded '%s': entry=0x%llx, base=0x%llx, %llu pages (cr3=0x%llx)\n",
+            path, info->entry, info->load_base, info->num_pages, cr3);
     return 0;
 }
 

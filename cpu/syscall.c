@@ -8,6 +8,7 @@
 #include "fs/elf_loader.h"
 #include "fs/vfs.h"
 #include "fs/pipe.h"
+#include "mm/vmm.h"
 
 void syscall_handler(struct registers *regs) {
     uint64_t num = regs->rax;
@@ -17,22 +18,18 @@ void syscall_handler(struct registers *regs) {
 
     switch (num) {
     case SYS_WRITE: {
-        /* sys_write(fd, buf, len) */
         int fd = (int)arg0;
         const char *buf = (const char *)arg1;
         uint64_t len = arg2;
         if (fd == 1) {
-            /* stdout: write to VGA + serial */
             for (uint64_t i = 0; i < len; i++) {
                 vga_putchar(buf[i]);
                 serial_putchar(buf[i]);
             }
             regs->rax = len;
         } else {
-            /* Try pipe write first */
             int result = pipe_fd_write(fd, buf, (size_t)len);
             if (result == -2) {
-                /* Not a pipe, try VFS */
                 result = vfs_write(fd, buf, (size_t)len);
             }
             regs->rax = (uint64_t)result;
@@ -41,11 +38,8 @@ void syscall_handler(struct registers *regs) {
     }
     case SYS_EXIT:
         task_exit();
-        /* Does not return */
         break;
     case SYS_YIELD:
-        /* Mark current task as ready so scheduler picks another.
-         * The actual switch happens on the next timer IRQ. */
         {
             struct task *cur = task_current();
             if (cur->state == TASK_RUNNING)
@@ -58,16 +52,24 @@ void syscall_handler(struct registers *regs) {
         break;
     case SYS_EXEC: {
         const char *path = (const char *)arg0;
+        /* Create address space for new process, then load ELF into it */
+        uint64_t new_cr3 = vmm_create_address_space();
+        if (!new_cr3) {
+            regs->rax = (uint64_t)-1;
+            break;
+        }
         struct elf_info info;
-        if (elf_load(path, &info) < 0) {
+        if (elf_load(path, &info, new_cr3) < 0) {
+            vmm_destroy_address_space(new_cr3);
             regs->rax = (uint64_t)-1;
         } else {
             struct task *t = task_create_user_elf(path, info.entry,
-                                                  info.load_base, info.num_pages);
+                                                  info.load_base, info.num_pages,
+                                                  new_cr3);
             if (t) {
                 regs->rax = t->pid;
             } else {
-                elf_unload(info.load_base, info.num_pages);
+                vmm_destroy_address_space(new_cr3);
                 regs->rax = (uint64_t)-1;
             }
         }
@@ -103,10 +105,8 @@ void syscall_handler(struct registers *regs) {
         int fd = (int)arg0;
         void *buf = (void *)arg1;
         size_t count = (size_t)arg2;
-        /* Check if this FD is a pipe */
         int result = pipe_fd_read(fd, buf, count);
         if (result == -2) {
-            /* Not a pipe FD, use VFS */
             result = vfs_read(fd, buf, count);
         }
         regs->rax = (uint64_t)result;
@@ -114,13 +114,25 @@ void syscall_handler(struct registers *regs) {
     }
     case SYS_CLOSE: {
         int fd = (int)arg0;
-        /* Try pipe close first */
         int result = pipe_fd_close(fd);
         if (result == -2) {
-            /* Not a pipe FD, use VFS */
             result = vfs_close(fd);
         }
         regs->rax = (uint64_t)result;
+        break;
+    }
+    case SYS_FORK: {
+        struct task *child = task_fork(regs);
+        if (child) {
+            regs->rax = child->pid; /* Parent gets child PID */
+        } else {
+            regs->rax = (uint64_t)-1;
+        }
+        break;
+    }
+    case SYS_WAITPID: {
+        uint64_t child_pid = arg0;
+        regs->rax = (uint64_t)task_waitpid(child_pid);
         break;
     }
     default:
@@ -130,7 +142,6 @@ void syscall_handler(struct registers *regs) {
 }
 
 void syscall_init(void) {
-    /* INT 0x80: DPL=3 interrupt gate (0xEE = present | DPL3 | interrupt gate) */
     idt_set_gate(0x80, (uint64_t)syscall_stub, 0x08, 0xEE);
     kprintf("[SYSCALL] Initialized (INT 0x80)\n");
 }

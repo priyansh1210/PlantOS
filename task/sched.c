@@ -1,6 +1,7 @@
 #include "task/task.h"
 #include "task/signal.h"
 #include "cpu/gdt.h"
+#include "mm/vmm.h"
 #include "lib/printf.h"
 
 static void idle_entry(void) {
@@ -30,11 +31,6 @@ uint64_t schedule_from_irq(uint64_t old_rsp) {
     if (!cur || !cur->next)
         return old_rsp;
 
-    /*
-     * Only save state for live tasks.  If the current task already
-     * exited (TASK_UNUSED), don't save old_rsp into it — that would
-     * be meaningless and could corrupt a future reuse of the TCB slot.
-     */
     int cur_alive = (cur->state == TASK_RUNNING || cur->state == TASK_READY ||
                      cur->state == TASK_BLOCKED);
     if (cur_alive) {
@@ -51,7 +47,6 @@ uint64_t schedule_from_irq(uint64_t old_rsp) {
     } while (next != start);
 
     if (next->state != TASK_READY) {
-        /* No other task ready — keep running current */
         return old_rsp;
     }
 
@@ -67,10 +62,16 @@ uint64_t schedule_from_irq(uint64_t old_rsp) {
         tss_set_rsp0(next->kstack_top);
     }
 
+    /* Switch address space if needed */
+    uint64_t next_cr3 = next->cr3 ? next->cr3 : vmm_get_boot_cr3();
+    uint64_t cur_cr3 = cur->cr3 ? cur->cr3 : vmm_get_boot_cr3();
+    if (next_cr3 != cur_cr3) {
+        vmm_switch_address_space(next_cr3);
+    }
+
     /* Deliver pending signals before switching to next task */
     if (next->pending_signals && next->is_user) {
         signal_deliver(next);
-        /* If signal_deliver killed the task, don't switch to it */
         if (next->state == TASK_UNUSED)
             return old_rsp;
     }

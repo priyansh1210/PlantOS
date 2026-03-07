@@ -14,6 +14,8 @@
 #define SYS_PIPE      8
 #define SYS_READ      9
 #define SYS_CLOSE     10
+#define SYS_FORK      11
+#define SYS_WAITPID   12
 
 static inline int64_t syscall0(uint64_t num) {
     int64_t ret;
@@ -65,7 +67,7 @@ static inline int64_t uwrite(int fd, const char *buf, uint64_t len) {
 
 static inline void uexit(int code) {
     syscall1(SYS_EXIT, (uint64_t)code);
-    for (;;); /* noreturn */
+    for (;;);
 }
 
 static inline void uyield(void) {
@@ -102,6 +104,14 @@ static inline int64_t uread(int fd, void *buf, uint64_t count) {
 
 static inline int64_t uclose(int fd) {
     return syscall1(SYS_CLOSE, (uint64_t)fd);
+}
+
+static inline int64_t ufork(void) {
+    return syscall0(SYS_FORK);
+}
+
+static inline int64_t uwaitpid(uint64_t pid) {
+    return syscall1(SYS_WAITPID, pid);
 }
 
 #endif

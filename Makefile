@@ -47,7 +47,7 @@ ASM64_OBJS = $(patsubst %.asm,$(BUILDDIR)/%.o,$(ASM64_SRCS))
 C_OBJS     = $(patsubst %.c,$(BUILDDIR)/%.o,$(C_SRCS))
 
 # User ELFs embedded via objcopy -I binary
-USER_GEN_OBJS = $(BUILDDIR)/user/hello_elf.o $(BUILDDIR)/user/sigdemo_elf.o
+USER_GEN_OBJS = $(BUILDDIR)/user/hello_elf.o $(BUILDDIR)/user/sigdemo_elf.o $(BUILDDIR)/user/forkdemo_elf.o
 
 OBJS64     = $(ASM64_OBJS) $(C_OBJS) $(USER_GEN_OBJS)
 
@@ -63,6 +63,8 @@ USER_HELLO_O   = $(BUILDDIR)/user/hello_user.o
 HELLO_ELF      = $(BUILDDIR)/user/hello.elf
 USER_SIGDEMO_O = $(BUILDDIR)/user/sigdemo_user.o
 SIGDEMO_ELF    = $(BUILDDIR)/user/sigdemo.elf
+USER_FORKDEMO_O = $(BUILDDIR)/user/forkdemo_user.o
+FORKDEMO_ELF    = $(BUILDDIR)/user/forkdemo.elf
 
 QEMU = qemu-system-x86_64
 
@@ -86,8 +88,6 @@ $(USER_HELLO_O): user/hello.c | dirs
 $(HELLO_ELF): $(USER_CRT0) $(USER_HELLO_O) | dirs
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_HELLO_O)
 
-# Embed ELF binary as object using objcopy (no xxd needed)
-# Creates symbols: _binary_hello_elf_start, _binary_hello_elf_end, _binary_hello_elf_size
 $(BUILDDIR)/user/hello_elf.o: $(HELLO_ELF) | dirs
 	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
 	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
@@ -102,6 +102,19 @@ $(SIGDEMO_ELF): $(USER_CRT0) $(USER_SIGDEMO_O) | dirs
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_SIGDEMO_O)
 
 $(BUILDDIR)/user/sigdemo_elf.o: $(SIGDEMO_ELF) | dirs
+	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
+	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
+	  $< $@
+
+# --- forkdemo user program ---
+
+$(USER_FORKDEMO_O): user/forkdemo.c | dirs
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(FORKDEMO_ELF): $(USER_CRT0) $(USER_FORKDEMO_O) | dirs
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_CRT0) $(USER_FORKDEMO_O)
+
+$(BUILDDIR)/user/forkdemo_elf.o: $(FORKDEMO_ELF) | dirs
 	$(OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 \
 	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
 	  $< $@
