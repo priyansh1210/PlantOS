@@ -1,6 +1,7 @@
 #include "user/libc/ulibc.h"
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc; (void)argv;
     printf("[MALLOCDEMO] PID=%lu\n", ugetpid());
 
     /* Test basic allocation */

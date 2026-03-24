@@ -20,6 +20,25 @@ int signal_send(uint64_t pid, int signum) {
     if (!t->is_user)
         return -1;
 
+    /* SIGCONT: always resume stopped task, clear pending stop signals */
+    if (signum == SIGCONT) {
+        t->pending_signals &= ~((1u << SIGTSTP) | (1u << SIGSTOP));
+        if (t->state == TASK_STOPPED) {
+            task_continue(t);
+        }
+        return 0;
+    }
+
+    /* SIGTSTP / SIGSTOP: stop the task immediately */
+    if (signum == SIGTSTP || signum == SIGSTOP) {
+        /* SIGSTOP cannot be caught; SIGTSTP can be caught */
+        if (signum == SIGSTOP || !t->signal_handlers[SIGTSTP]) {
+            task_stop(t);
+            return 0;
+        }
+        /* SIGTSTP with user handler — deliver via normal path */
+    }
+
     t->pending_signals |= (1u << signum);
 
     /* If target is blocked, wake it so it can receive the signal */
@@ -34,8 +53,8 @@ int signal_send(uint64_t pid, int signum) {
 int signal_register(int signum, uint64_t handler_addr) {
     if (signum < 1 || signum >= MAX_SIGNALS)
         return -1;
-    if (signum == SIGKILL)
-        return -1; /* Cannot override SIGKILL */
+    if (signum == SIGKILL || signum == SIGSTOP)
+        return -1; /* Cannot override SIGKILL or SIGSTOP */
 
     struct task *cur = task_current();
     if (!cur)

@@ -1,6 +1,7 @@
 #include "user/libc/ulibc.h"
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc; (void)argv;
     printf("[FORKDEMO] Parent PID=%lu\n", ugetpid());
 
     int64_t pid = ufork();

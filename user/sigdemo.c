@@ -6,7 +6,8 @@ static void sigusr1_handler(int signum) {
     usigreturn();
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    (void)argc; (void)argv;
     uint64_t pid = ugetpid();
 
     printf("[SIGDEMO] PID=%lu, registering SIGUSR1 handler\n", pid);

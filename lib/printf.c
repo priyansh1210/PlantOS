@@ -3,9 +3,12 @@
 #include "drivers/vga.h"
 #include "drivers/serial.h"
 
+static void (*capture_fn)(char c) = NULL;
+
 static void kput(char c) {
     vga_putchar(c);
     serial_putchar(c);
+    if (capture_fn) capture_fn(c);
 }
 
 static void kputs(const char *s) {
@@ -14,8 +17,17 @@ static void kputs(const char *s) {
             serial_putchar('\r');
         serial_putchar(*s);
         vga_putchar(*s);
+        if (capture_fn) capture_fn(*s);
         s++;
     }
+}
+
+void kprintf_set_capture(void (*fn)(char c)) {
+    capture_fn = fn;
+}
+
+void kprintf_clear_capture(void) {
+    capture_fn = NULL;
 }
 
 static void print_uint(uint64_t val, int base, int width, char pad, int uppercase) {

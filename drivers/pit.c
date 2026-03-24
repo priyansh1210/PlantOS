@@ -2,12 +2,17 @@
 #include "cpu/ports.h"
 #include "cpu/idt.h"
 #include "lib/printf.h"
+#include "net/tcp.h"
 
 static volatile uint64_t pit_ticks = 0;
 
 static void pit_callback(struct registers *regs) {
     (void)regs;
     pit_ticks++;
+
+    /* TCP retransmission timer — every 10 ticks (~100ms) */
+    if ((pit_ticks % 10) == 0)
+        tcp_timer();
 }
 
 void pit_init(void) {
