@@ -2,6 +2,7 @@
 #include "mm/heap.h"
 #include "lib/string.h"
 #include "lib/printf.h"
+#include "task/task.h"
 
 static struct vfs_inode inode_table[VFS_MAX_INODES];
 
@@ -170,6 +171,9 @@ int ramfs_create_file(const char *path) {
     inode_table[ino].size = 0;
     inode_table[ino].data = NULL;
     inode_table[ino].capacity = 0;
+    inode_table[ino].mode = 0644; /* rw-r--r-- */
+    struct task *cur = task_current();
+    if (cur) { inode_table[ino].uid = cur->uid; inode_table[ino].gid = cur->gid; }
 
     if (dir_add_entry((uint32_t)parent_ino, name, (uint32_t)ino) < 0) {
         inode_table[ino].used = false;
@@ -199,6 +203,9 @@ int ramfs_create_dir(const char *path) {
     inode_table[ino].size = 0;
     inode_table[ino].data = NULL;
     inode_table[ino].capacity = 0;
+    inode_table[ino].mode = 0755; /* rwxr-xr-x */
+    struct task *cur = task_current();
+    if (cur) { inode_table[ino].uid = cur->uid; inode_table[ino].gid = cur->gid; }
 
     if (dir_add_entry((uint32_t)parent_ino, name, (uint32_t)ino) < 0) {
         inode_table[ino].used = false;
@@ -206,6 +213,51 @@ int ramfs_create_dir(const char *path) {
     }
 
     return ino;
+}
+
+int ramfs_unlink(const char *path) {
+    char parent_path[VFS_PATH_MAX];
+    char name[VFS_NAME_MAX];
+
+    if (split_path(path, parent_path, name) < 0) return -1;
+
+    int parent_ino = ramfs_resolve_path(parent_path);
+    if (parent_ino < 0) return -1;
+
+    int target_ino = ramfs_resolve_path(path);
+    if (target_ino < 0) return -1;
+
+    /* Don't delete directories */
+    struct vfs_inode *target = ramfs_get_inode((uint32_t)target_ino);
+    if (!target || target->type != VFS_FILE) return -1;
+
+    /* Remove entry from parent directory */
+    struct vfs_inode *parent = ramfs_get_inode((uint32_t)parent_ino);
+    if (!parent || parent->type != VFS_DIR) return -1;
+
+    uint32_t count = parent->size / sizeof(struct vfs_dirent);
+    struct vfs_dirent *entries = (struct vfs_dirent *)parent->data;
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (strcmp(entries[i].name, name) == 0) {
+            /* Shift remaining entries down */
+            for (uint32_t j = i; j + 1 < count; j++)
+                entries[j] = entries[j + 1];
+            parent->size -= sizeof(struct vfs_dirent);
+            break;
+        }
+    }
+
+    /* Free inode data */
+    if (target->data) {
+        kfree(target->data);
+        target->data = NULL;
+    }
+    target->used = false;
+    target->size = 0;
+    target->capacity = 0;
+
+    return 0;
 }
 
 void ramfs_init(void) {
@@ -217,6 +269,9 @@ void ramfs_init(void) {
     inode_table[0].size = 0;
     inode_table[0].data = NULL;
     inode_table[0].capacity = 0;
+    inode_table[0].uid = 0;
+    inode_table[0].gid = 0;
+    inode_table[0].mode = 0755;
 
     kprintf("[RAMFS] In-memory filesystem initialized\n");
 }

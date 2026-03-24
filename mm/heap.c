@@ -2,9 +2,12 @@
 #include "mm/pmm.h"
 #include "lib/string.h"
 #include "lib/printf.h"
+#include "cpu/spinlock.h"
+
+static spinlock_t heap_lock = SPINLOCK_INIT;
 
 #define HEAP_MAGIC 0xDEADBEEF
-#define HEAP_INITIAL_PAGES 256  /* 1MB initial heap */
+#define HEAP_INITIAL_PAGES 2048  /* 8MB initial heap */
 
 struct heap_block {
     uint32_t magic;
@@ -56,6 +59,8 @@ void heap_init(void) {
 void *kmalloc(size_t size) {
     if (size == 0) return NULL;
 
+    spin_lock(&heap_lock);
+
     /* Align size to 16 bytes */
     size = (size + 15) & ~15ULL;
 
@@ -82,25 +87,30 @@ void *kmalloc(size_t size) {
             block->is_free = 0;
             heap_used += block->size;
             heap_alloc_count++;
+            spin_unlock(&heap_lock);
             return (void *)(block + 1);
         }
         block = block->next;
     }
 
     kprintf("[HEAP] Out of memory! Requested %llu bytes\n", size);
+    spin_unlock(&heap_lock);
     return NULL;
 }
 
 void kfree(void *ptr) {
     if (!ptr) return;
 
+    spin_lock(&heap_lock);
     struct heap_block *block = (struct heap_block *)ptr - 1;
     if (block->magic != HEAP_MAGIC) {
         kprintf("[HEAP] kfree: invalid pointer 0x%llx\n", (uint64_t)ptr);
+        spin_unlock(&heap_lock);
         return;
     }
     if (block->is_free) {
         kprintf("[HEAP] kfree: double free at 0x%llx\n", (uint64_t)ptr);
+        spin_unlock(&heap_lock);
         return;
     }
 
@@ -123,6 +133,7 @@ void kfree(void *ptr) {
         if (block->next)
             block->next->prev = block->prev;
     }
+    spin_unlock(&heap_lock);
 }
 
 void heap_dump_stats(void) {
@@ -132,3 +143,6 @@ void heap_dump_stats(void) {
             (heap_total_size - heap_used) / 1024,
             heap_alloc_count);
 }
+
+uint64_t heap_get_used(void)  { return heap_used; }
+uint64_t heap_get_total(void) { return heap_total_size; }

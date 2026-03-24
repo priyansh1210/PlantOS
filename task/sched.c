@@ -1,6 +1,7 @@
 #include "task/task.h"
 #include "task/signal.h"
 #include "cpu/gdt.h"
+#include "cpu/fpu.h"
 #include "mm/vmm.h"
 #include "lib/printf.h"
 
@@ -54,8 +55,18 @@ uint64_t schedule_from_irq(uint64_t old_rsp) {
     if (cur_alive && cur->state == TASK_RUNNING)
         cur->state = TASK_READY;
 
+    /* Save FPU/SSE state of outgoing user task */
+    if (cur_alive && cur->fpu_used) {
+        fpu_save(cur->fpu_state);
+    }
+
     next->state = TASK_RUNNING;
     task_set_current(next);
+
+    /* Restore FPU/SSE state of incoming user task */
+    if (next->fpu_used) {
+        fpu_restore(next->fpu_state);
+    }
 
     /* Update TSS.rsp0 for user-mode tasks */
     if (next->is_user) {

@@ -35,5 +35,6 @@ void vga_put_colored(const char *str, uint8_t fg, uint8_t bg);
 void vga_set_cursor(int row, int col);
 void vga_get_cursor(int *row, int *col);
 void vga_backspace(void);
+void vga_put_at(int row, int col, char c, uint8_t fg, uint8_t bg);
 
 #endif

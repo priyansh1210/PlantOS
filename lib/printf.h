@@ -11,4 +11,8 @@ typedef __builtin_va_list va_list;
 
 void kprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
+/* Output capture hook — redirect kprintf output to a callback */
+void kprintf_set_capture(void (*fn)(char c));
+void kprintf_clear_capture(void);
+
 #endif

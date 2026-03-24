@@ -7,3 +7,5 @@ iso/
 *.img
 *.log
 .claude/
+serial_out.txt
+INFRASTRUCTURE_ANALYSIS.txt

@@ -30,6 +30,8 @@ SECTIONS
         *(COMMON)
         *(.bss)
         *(.bss.*)
+        *(.lbss)
+        *(.lbss.*)
     }
     _bss_end = .;
 

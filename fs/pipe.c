@@ -148,6 +148,12 @@ int pipe_fd_close(int fd) {
     if (!f || !f->pipe)
         return -2; /* Not a pipe FD */
 
+    /* Respect refcount — only release pipe end when last ref closes */
+    if (f->refcount > 1) {
+        f->refcount--;
+        return 0;
+    }
+
     struct pipe *p = f->pipe;
 
     if (f->pipe_mode == PIPE_READ) {
@@ -166,6 +172,7 @@ int pipe_fd_close(int fd) {
 
     f->pipe = NULL;
     f->pipe_mode = 0;
+    f->refcount = 0;
     f->used = false;
     return 0;
 }

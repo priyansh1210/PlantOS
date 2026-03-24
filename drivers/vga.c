@@ -98,6 +98,13 @@ void vga_get_cursor(int *row, int *col) {
     if (col) *col = vga_col;
 }
 
+void vga_put_at(int row, int col, char c, uint8_t fg, uint8_t bg) {
+    if (row >= 0 && row < VGA_HEIGHT && col >= 0 && col < VGA_WIDTH) {
+        uint8_t attr = (bg << 4) | (fg & 0x0F);
+        vga_buffer[row * VGA_WIDTH + col] = vga_entry(c, attr);
+    }
+}
+
 void vga_backspace(void) {
     if (vga_col > 0) {
         vga_col--;

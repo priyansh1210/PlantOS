@@ -1,8 +1,12 @@
 #include "cpu/isr.h"
 #include "cpu/idt.h"
 #include "lib/printf.h"
+#include "lib/string.h"
 #include "kernel/panic.h"
 #include "task/task.h"
+#include "mm/vma.h"
+#include "mm/vmm.h"
+#include "mm/pmm.h"
 
 static const char *exception_names[] = {
     "Division Error",
@@ -34,6 +38,43 @@ static const char *exception_names[] = {
     "Reserved"
 };
 
+static void device_not_available_handler(struct registers *regs) {
+    /* ISR 7: #NM — shouldn't fire since FPU/SSE is always enabled.
+     * If it does, it means something went wrong with CR0 setup. */
+    int user_mode = (regs->cs & 3) != 0;
+    if (user_mode) {
+        struct task *t = task_current();
+        kprintf("[FPU] Task '%s' (pid %llu): Device Not Available at rip=0x%llx\n",
+                t->name, t->pid, regs->rip);
+        task_exit();
+    }
+    kernel_panic("Device Not Available (#NM) in kernel mode");
+}
+
+static void x87_fp_handler(struct registers *regs) {
+    /* ISR 16: x87 floating-point exception */
+    int user_mode = (regs->cs & 3) != 0;
+    if (user_mode) {
+        struct task *t = task_current();
+        kprintf("[FPU] Task '%s' (pid %llu): x87 FP exception at rip=0x%llx\n",
+                t->name, t->pid, regs->rip);
+        task_exit();
+    }
+    kernel_panic("x87 floating-point exception in kernel mode");
+}
+
+static void simd_fp_handler(struct registers *regs) {
+    /* ISR 19: SIMD floating-point exception */
+    int user_mode = (regs->cs & 3) != 0;
+    if (user_mode) {
+        struct task *t = task_current();
+        kprintf("[FPU] Task '%s' (pid %llu): SIMD FP exception at rip=0x%llx\n",
+                t->name, t->pid, regs->rip);
+        task_exit();
+    }
+    kernel_panic("SIMD floating-point exception in kernel mode");
+}
+
 static void page_fault_handler(struct registers *regs) {
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
@@ -42,6 +83,24 @@ static void page_fault_handler(struct registers *regs) {
 
     if (user_mode) {
         struct task *t = task_current();
+
+        /* Check if the faulting address is in a valid VMA — demand paging */
+        struct vma *v = vma_find(t->vmas, cr2);
+        if (v) {
+            /* Allocate a physical page and map it */
+            void *phys = pmm_alloc_page();
+            if (phys) {
+                memset(phys, 0, PAGE_SIZE);
+                uint64_t vaddr = cr2 & ~0xFFFULL;
+                uint64_t flags = VMM_PRESENT | VMM_USER;
+                if (v->flags & VMA_WRITE) flags |= VMM_WRITE;
+
+                vmm_map_page(vaddr, (uint64_t)phys, flags);
+                return; /* Resume the faulting instruction */
+            }
+            /* Out of memory — fall through to kill */
+        }
+
         kprintf("[PF] Task '%s' (pid %llu): segfault at 0x%llx (err=0x%llx, rip=0x%llx)\n",
                 t->name, t->pid, cr2, regs->err_code, regs->rip);
         task_exit();
@@ -91,8 +150,11 @@ void isr_init(void) {
     idt_set_gate(30, (uint64_t)isr30, 0x08, 0x8E);
     idt_set_gate(31, (uint64_t)isr31, 0x08, 0x8E);
 
+    register_interrupt_handler(7, device_not_available_handler);
     register_interrupt_handler(14, page_fault_handler);
-    kprintf("[ISR] Exception handlers installed (with page fault handler)\n");
+    register_interrupt_handler(16, x87_fp_handler);
+    register_interrupt_handler(19, simd_fp_handler);
+    kprintf("[ISR] Exception handlers installed (PF, FPU/SSE)\n");
 }
 
 /* Called from assembly ISR common stub */

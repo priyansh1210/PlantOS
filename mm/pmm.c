@@ -1,7 +1,10 @@
 #include "mm/pmm.h"
 #include "lib/string.h"
 #include "lib/printf.h"
+#include "cpu/spinlock.h"
 #include <plantos/multiboot.h>
+
+static spinlock_t pmm_lock = SPINLOCK_INIT;
 
 extern uint8_t _kernel_end;
 
@@ -117,13 +120,16 @@ void pmm_init(uint64_t multiboot_info_addr) {
 }
 
 void *pmm_alloc_page(void) {
+    spin_lock(&pmm_lock);
     for (uint64_t i = 0; i < total_pages; i++) {
         if (!bitmap_test(i)) {
             bitmap_set(i);
             used_pages++;
+            spin_unlock(&pmm_lock);
             return (void *)(i * PAGE_SIZE);
         }
     }
+    spin_unlock(&pmm_lock);
     return NULL;
 }
 
@@ -136,11 +142,13 @@ void pmm_mark_page_used(uint64_t addr) {
 }
 
 void pmm_free_page(void *addr) {
+    spin_lock(&pmm_lock);
     uint64_t page = (uint64_t)addr / PAGE_SIZE;
     if (page < total_pages && bitmap_test(page)) {
         bitmap_clear(page);
         used_pages--;
     }
+    spin_unlock(&pmm_lock);
 }
 
 uint64_t pmm_get_total_pages(void) { return total_pages; }

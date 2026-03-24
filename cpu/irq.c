@@ -1,6 +1,7 @@
 #include "cpu/irq.h"
 #include "cpu/idt.h"
 #include "drivers/pic.h"
+#include "cpu/apic.h"
 #include "lib/printf.h"
 
 void irq_init(void) {
@@ -38,8 +39,11 @@ uint64_t irq_handler(uint64_t rsp) {
         handler(regs);
     }
 
-    /* Send EOI */
-    pic_send_eoi(regs->int_no - 32);
+    /* Send EOI — use LAPIC if APIC is active, else PIC */
+    if (apic_active)
+        lapic_eoi();
+    else
+        pic_send_eoi(regs->int_no - 32);
 
     /* For IRQ0 (timer), the scheduler may return a different RSP */
     if (regs->int_no == 32) {

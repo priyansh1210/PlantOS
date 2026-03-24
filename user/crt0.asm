@@ -1,5 +1,6 @@
 ; crt0.asm — C runtime startup for user-mode ELF programs
-; Calls main(), then issues SYS_EXIT with the return value.
+; Receives argc in rdi, argv in rsi (set up by kernel).
+; Calls main(argc, argv), then issues SYS_EXIT with the return value.
 
 [BITS 64]
 
@@ -8,7 +9,7 @@ global _start
 extern main
 
 _start:
-    ; Call main()
+    ; argc is already in rdi, argv in rsi (System V ABI)
     call main
 
     ; SYS_EXIT(return_value)
